@@ -132,12 +132,14 @@ export default function Home() {
         };
         setStudent(studentData);
 
+        const realStudentId = data.partner_id;
+
         const randomIndex = Math.floor(Math.random() * welcomeMessages.length);
         const message = welcomeMessages[randomIndex].replace("{name}", fullName.split(" ")[0]);
         setWelcomeMessage(message);
 
         const newAttendance: Attendance = {
-          studentId,
+          studentId: realStudentId,
           fullName,
           department: data.department,
           email: data.email_address,

@@ -25,6 +25,7 @@ import {
   X,
   ScanLine,
   Heart,
+  ImageOff, // Icon for when photo is not available
 } from "lucide-react";
 import { type } from "os";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -46,18 +47,19 @@ export default function RegistrationPage({
     type: "success" | "warning" | "error";
     student: Student | null;
     show: boolean;
+    photoUrl?: string | null;
   }>({
     message: "",
     type: "success",
     student: null,
     show: false,
+    photoUrl: null,
   });
   const [isProcessing, setIsProcessing] = useState(false);
   const [inputQueue, setInputQueue] = useState<string[]>([]);
-  const inputQueueRef = useRef<string[]>([]); // Ref to keep track of the queue
+  const inputQueueRef = useRef<string[]>([]);
 
   useEffect(() => {
-    // Update the inputQueueRef whenever inputQueue changes
     inputQueueRef.current = inputQueue;
   }, [inputQueue]);
 
@@ -67,46 +69,46 @@ export default function RegistrationPage({
     async (idToProcess: string) => {
       if (!currentEvent) return;
 
-      setIsProcessing(true); // Mark as processing START
-      setLastProcessedInfo((prev) => ({ ...prev, show: false }));
+      setIsProcessing(true);
+      setLastProcessedInfo((prev) => ({
+        ...prev,
+        show: false,
+        photoUrl: null,
+      }));
       let studentData: Student | null = null;
+      let studentPhotoUrl: string | null = null;
       let message = "";
       let messageType: "success" | "warning" | "error" = "success";
-      let derivedFullName = "Student"; // Default name
+      let derivedFullName = "Student";
 
       try {
-        // 1. Check Cache
         if (studentCache.has(idToProcess)) {
-          studentData = studentCache.get(idToProcess) ?? null; // Get from cache (null if previously not found)
+          const cachedStudent = studentCache.get(idToProcess);
+          studentData = cachedStudent ?? null;
+          studentPhotoUrl = cachedStudent?.photoUrl ?? null;
           if (studentData === null) {
             message = "Student ID not found (cached).";
             messageType = "error";
-            // Skip to finally block after setting message info
           }
-          // If studentData is found in cache, proceed to registration check
         } else {
-          // 2. Fetch from API if not in cache
-          const response = await fetch(
+          const studentInfoResponse = await fetch(
             `https://student-info.tyronscott.me/api/student?id=${idToProcess}`
           );
-          // Simulate delay (REMOVE)
-          // await new Promise(resolve => setTimeout(resolve, 800));
 
-          if (!response.ok) {
-            if (response.status === 404) {
+          if (!studentInfoResponse.ok) {
+            if (studentInfoResponse.status === 404) {
               message = "Student ID not found.";
               messageType = "error";
-              setStudentCache((prev) => new Map(prev).set(idToProcess, null)); // Cache the "not found" result
+              setStudentCache((prev) =>
+                new Map(prev).set(idToProcess, null)
+              );
             } else {
-              message = `API Error: ${response.status}. Try again.`;
+              message = `API Error: ${studentInfoResponse.status}. Try again.`;
               messageType = "error";
-              // Do not cache temporary errors
             }
-            // Skip to finally block
           } else {
-            const apiData = await response.json();
+            const apiData = await studentInfoResponse.json();
             if (apiData.email_address && apiData.partner_id) {
-              // Derive full name (simple example)
               const emailParts = apiData.email_address.split("@")[0];
               const nameParts = emailParts.split("_");
               derivedFullName = nameParts
@@ -116,26 +118,48 @@ export default function RegistrationPage({
                 .join(" ");
 
               studentData = {
+                photoUrl: null,
                 email_address: apiData.email_address,
                 department: apiData.department || "N/A",
                 fullName: derivedFullName,
-                partner_id: apiData.partner_id, // Store the real ID
+                partner_id: apiData.partner_id,
               };
+
+              try {
+                const photoResponse = await fetch(
+                  `https://student-info.tyronscott.me/api/getStudentPhoto?id=${apiData.partner_id}`
+                );
+                if (photoResponse.ok) {
+                  studentPhotoUrl = await photoResponse.text()
+                } else {
+                  console.warn(
+                    "Failed to fetch student photo:",
+                    photoResponse.status
+                  );
+                  studentPhotoUrl = null;
+                }
+              } catch (photoError) {
+                console.error("Error fetching student photo:", photoError);
+                studentPhotoUrl = null;
+              }
               setStudentCache((prev) =>
-                new Map(prev).set(idToProcess, studentData)
-              ); // Cache successful fetch
+                new Map(prev).set(idToProcess, {
+                  ...studentData!,
+                  photoUrl: studentPhotoUrl,
+                })
+              );
             } else {
               message = "Incomplete student data received.";
               messageType = "error";
-              setStudentCache((prev) => new Map(prev).set(idToProcess, null)); // Cache as "not found" if data is bad
+              setStudentCache((prev) =>
+                new Map(prev).set(idToProcess, null)
+              );
             }
           }
-        } // End of fetch logic
+        }
 
-        // 3. Process Registration (if student data was found/valid)
         if (studentData && messageType !== "error") {
-          derivedFullName = studentData.fullName; // Use name from cached/fetched data
-          // Check if *already registered* using the REAL ID (partner_id)
+          derivedFullName = studentData.fullName;
           const alreadyRegistered = currentEvent.attendees.some(
             (attendee) => attendee.studentId === studentData!.partner_id
           );
@@ -145,20 +169,15 @@ export default function RegistrationPage({
               derivedFullName.split(" ")[0]
             }, you're already checked in!`;
             messageType = "warning";
-            // Don't add to attendees again
           } else {
-            // Add to attendees
             const newAttendance: Attendance = {
-              studentId: studentData.partner_id, // Use the REAL ID here
+              studentId: studentData.partner_id,
               fullName: studentData.fullName,
               department: studentData.department,
               email: studentData.email_address,
               timestamp: new Date().toISOString(),
             };
-
             onEventAttendance(newAttendance);
-
-            // Set success message
             const randomIndex = Math.floor(
               Math.random() * welcomeMessages.length
             );
@@ -169,37 +188,37 @@ export default function RegistrationPage({
             messageType = "success";
           }
         } else if (!message) {
-          // If studentData is null/invalid but no error message was set yet (e.g. cached null)
-          message = "Student ID not processed."; // Fallback message
+          message = "Student ID not processed.";
           messageType = "error";
         }
       } catch (error) {
         console.error("Processing Error:", error);
         message = "A network or system error occurred.";
         messageType = "error";
-        // Don't cache network errors
       } finally {
-        // 6. Process Next Queued Item (if any) - DO THIS IMMEDIATELY
         const nextIdInQueue =
           inputQueueRef.current.length > 0 ? inputQueueRef.current[0] : null;
         if (nextIdInQueue) {
           setInputQueue((q) => q.slice(1));
-          // Call processId recursively for the next item *without* awaiting here in finally
-          // Use setTimeout to avoid deep recursion issues and allow UI updates
           setTimeout(() => processId(nextIdInQueue), 0);
         } else {
-          // Only mark processing as fully finished if queue is empty
-          setIsProcessing(false); // Mark as processing END
-
+          setIsProcessing(false);
           setLastProcessedInfo({
-            message: message || "Completed.", // Fallback message
+            message: message || "Completed.",
             type: messageType,
-            student: studentData, // Pass student data for potential display (like department)
-            show: true, // Trigger display
+            student: studentData,
+            photoUrl: studentData ? studentPhotoUrl : null, // Only pass photoUrl if student data exists
+            show: true,
           });
 
           setTimeout(() => {
-            setLastProcessedInfo((prev) => ({ ...prev, show: false }));
+            setLastProcessedInfo((prev) => {
+              if (prev.photoUrl && prev.photoUrl.startsWith("blob:")) {
+                URL.revokeObjectURL(prev.photoUrl);
+              }
+              return { ...prev, show: false };
+            });
+            // Revoke object URL to free up memory if it was created
           }, messageTimeout);
         }
       }
@@ -209,18 +228,14 @@ export default function RegistrationPage({
 
   useCardReader((input: string) => {
     if (isProcessing) {
-      // If already processing, add to queue
       setInputQueue((prev) => [...prev, input]);
     } else {
-      // Process immediately
       processId(input);
     }
   });
 
   const { width, height } = useWindowSize();
-
-  // destructure
-  const { message, type, student, show } = lastProcessedInfo;
+  const { message, type, student, show, photoUrl } = lastProcessedInfo;
   const messageStyles =
     type === "success"
       ? successColor
@@ -259,27 +274,23 @@ export default function RegistrationPage({
           numberOfPieces={200}
           gravity={0.1}
           initialVelocityY={-12}
-          tweenDuration={5000} // Slightly shorter duration
+          tweenDuration={5000}
           colors={["#FFFFFF", "#A7F3D0", "#6EE7B7", "#34D399"]}
           style={{ position: "fixed", top: 0, left: 0, zIndex: 5000 }}
           onConfettiComplete={(instance) => instance?.reset()}
         />
       )}
 
-      {/* Top Bar */}
       <div className="p-3 border-b border-gray-200 flex items-center justify-between flex-shrink-0 bg-white bg-opacity-90 backdrop-blur-sm z-10">
-        {" "}
-        {/* Added justify-between */}
         <div className="flex items-center overflow-hidden">
           <motion.button
             whileHover={{ scale: 1.1, backgroundColor: "#f3f4f6" }}
             whileTap={{ scale: 0.9 }}
-            className="bg-gray-100 text-gray-700 p-1.5 rounded-full mr-3 hover:bg-gray-200 transition-colors" // Smaller padding/margin
+            className="bg-gray-100 text-gray-700 p-1.5 rounded-full mr-3 hover:bg-gray-200 transition-colors"
             onClick={onBack}
             title="Back"
           >
-            {" "}
-            <ArrowLeft size={18} />{" "}
+            <ArrowLeft size={18} />
           </motion.button>
           <div className="overflow-hidden">
             <h1
@@ -287,17 +298,13 @@ export default function RegistrationPage({
               title={currentEvent?.name}
             >
               {currentEvent?.name || "Check-in"}
-            </h1>{" "}
-            {/* Smaller text */}
+            </h1>
             <p className={`text-xs ${dlslMutedText}`}>
-              {" "}
-              {/* Smaller text */}
               <Users size={12} className="inline mr-1" />
               {currentEvent?.attendees.length ?? 0} checked in
             </p>
           </div>
         </div>
-        {/* Queue Indicator */}
         <AnimatePresence>
           {inputQueue.length > 0 && (
             <motion.div
@@ -317,36 +324,66 @@ export default function RegistrationPage({
         </AnimatePresence>
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col items-center justify-center p-4 overflow-hidden relative">
         <AnimatePresence mode="wait">
-          {show ? ( // --- Message Display ---
+          {show ? (
             <motion.div
               key="message-card"
               initial={{ opacity: 0, scale: 0.7 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
-              transition={springFast} // Faster spring
-              className="text-center p-6 bg-white rounded-xl shadow-lg max-w-sm w-full relative z-20" // Slightly smaller card
+              transition={springFast}
+              className="text-center p-6 bg-white rounded-xl shadow-lg max-w-md w-full relative z-20" // Increased max-w for photo
             >
+              {photoUrl && type === "success" && (
+                <motion.div
+                  initial={{ opacity: 0, y: -20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1, ...springFast }}
+                  className="mb-4 flex justify-center"
+                >
+                  <img
+                    src={photoUrl}
+                    alt={student?.fullName || "Student photo"}
+                    className="w-32 h-32 rounded-full object-cover border-4 border-white shadow-md" // Adjusted size
+                  />
+                </motion.div>
+              )}
+              {type === "success" && !photoUrl && student && (
+                <motion.div
+                  initial={{ opacity: 0, y: -20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1, ...springFast }}
+                  className="mb-4 flex justify-center items-center w-32 h-32 rounded-full bg-gray-200 text-gray-500 mx-auto border-4 border-white shadow-md"
+                >
+                  <ImageOff size={48} />
+                </motion.div>
+              )}
+
               <motion.div
-                className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${messageStyles.bg}`} // Smaller icon circle
+                className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3 ${
+                  messageStyles.bg
+                } ${photoUrl && type === "success" ? "mt-2" : "mb-4"}`} // Adjusted margin based on photo
                 initial={{ scale: 0, rotate: -90 }}
                 animate={{ scale: 1, rotate: 0 }}
-                transition={{ ...springFast, delay: 0.05 }} // Faster spring, small delay
+                transition={{
+                  ...springFast,
+                  delay: photoUrl && type === "success" ? 0.15 : 0.05,
+                }}
               >
                 <motion.div
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
-                  transition={{ delay: 0.2 }}
+                  transition={{
+                    delay: photoUrl && type === "success" ? 0.3 : 0.2,
+                  }}
                 >
                   {type === "success" && (
                     <Check className={messageStyles.icon} size={32} />
                   )}
                   {type === "warning" && (
                     <Users className={messageStyles.icon} size={32} />
-                  )}{" "}
-                  {/* Users icon for 'already registered' */}
+                  )}
                   {type === "error" && (
                     <X className={messageStyles.icon} size={32} />
                   )}
@@ -358,20 +395,19 @@ export default function RegistrationPage({
                 transition={{ delay: 0.25, duration: durationFast }}
                 className={`text-xl font-semibold ${messageStyles.text} mb-1 break-words`}
               >
-                {" "}
-                {message}{" "}
+                {message}
               </motion.h2>
-              {student && type === "success" && (
-                <motion.p
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.35 }}
-                  className={`text-sm ${dlslMutedText}`}
-                >
-                  {" "}
-                  {student.department}{" "}
-                </motion.p>
-              )}
+              {student &&
+                (type === "success" || type === "warning") && ( // Show department for warning too
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.35 }}
+                    className={`text-sm ${dlslMutedText}`}
+                  >
+                    {student.department}
+                  </motion.p>
+                )}
             </motion.div>
           ) : (
             <motion.div
@@ -388,8 +424,6 @@ export default function RegistrationPage({
                 transition={{ delay: 0.1, ...springFast }}
                 className={`mb-6 ${dlslGreen.text}`}
               >
-                {" "}
-                {/* Reduced margin */}
                 <motion.div
                   animate={{ y: [0, -4, 0], scale: [1, 1.03, 1] }}
                   transition={{
@@ -398,13 +432,12 @@ export default function RegistrationPage({
                     ease: "easeInOut",
                   }}
                 >
-                  <ScanLine size={56} className="mx-auto" />{" "}
+                  <ScanLine size={56} className="mx-auto" />
                 </motion.div>
               </motion.div>
               <h2
                 className={`text-2xl sm:text-3xl font-semibold ${dlslGreen.darkText} mb-4`}
               >
-                {" "}
                 Tap Your DLSL ID
               </h2>
               <form className="relative w-full">
@@ -432,7 +465,7 @@ export default function RegistrationPage({
                         className={`relative w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin`}
                       ></div>
                     </motion.div>
-                  )}{" "}
+                  )}
                 </AnimatePresence>
               </form>
               <motion.div
@@ -461,20 +494,14 @@ export default function RegistrationPage({
         </AnimatePresence>
       </div>
 
-      {/* Recent Check-ins Section (Faster animations) */}
       {currentEvent && (
         <div className="border-t border-gray-100 p-3 max-h-52 overflow-y-auto bg-white flex-shrink-0 relative z-0">
-          {" "}
-          {/* Reduced padding/max-height */}
           <h3
             className={`text-xs font-semibold ${dlslGreen.darkText} mb-2 sticky top-0 bg-white pt-1 pb-1.5 border-b border-gray-100 z-10`}
           >
-            {" "}
-            {/* Smaller text */}
             Recent ({currentEvent.attendees.length})
           </h3>
           <div className="space-y-1.5 pr-1">
-            {" "}
             <AnimatePresence initial={false}>
               {[...currentEvent.attendees]
                 .reverse()
@@ -496,13 +523,9 @@ export default function RegistrationPage({
                     }}
                     className="flex items-center gap-2 p-2 bg-gray-50 hover:bg-gray-100 rounded-md transition-colors"
                   >
-                    {" "}
-                    {/* Smaller padding/gap */}
                     <div
                       className={`w-6 h-6 ${dlslGreen.lighterBg} ${dlslGreen.text} rounded-full flex items-center justify-center font-semibold text-xs flex-shrink-0`}
                     >
-                      {" "}
-                      {/* Smaller avatar */}
                       {attendee.fullName.charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 overflow-hidden min-w-0">
@@ -511,8 +534,7 @@ export default function RegistrationPage({
                         title={attendee.fullName}
                       >
                         {attendee.fullName}
-                      </p>{" "}
-                      {/* Smaller text */}
+                      </p>
                       <p
                         className="text-xs text-gray-500 truncate"
                         title={attendee.department}
@@ -521,8 +543,6 @@ export default function RegistrationPage({
                       </p>
                     </div>
                     <div className="text-[10px] text-gray-400 flex-shrink-0 text-right ml-1">
-                      {" "}
-                      {/* Even smaller time */}
                       {new Date(attendee.timestamp).toLocaleTimeString([], {
                         hour: "numeric",
                         minute: "2-digit",

@@ -7,6 +7,8 @@ import { Attendance, Event, dlslGreen } from "@/lib/types";
 import RegistrationPage from "@/components/registration";
 import EventListPage from "@/components/event-list";
 import CreateEventPage from "@/components/create-event";
+import { emit } from "process";
+import { emitEventCreated } from "@/lib/telemetry";
 
 export default function Home() {
   const [view, setView] = useState<"events" | "registration" | "create">(
@@ -84,7 +86,8 @@ export default function Home() {
     setEvents((prev) => [...prev, event]);
     setView("events");
 
-    
+
+    emitEventCreated(event);
   };
 
   const goBackToEvents = () => {

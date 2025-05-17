@@ -92,7 +92,7 @@ export default function RegistrationPage({
           }
         } else {
           const studentInfoResponse = await fetch(
-            `https://student-info.tyronscott.me/api/student?id=${idToProcess}`
+            `https://dlsl-student-api.onrender.com/api/student?id=${idToProcess}`
           );
 
           if (!studentInfoResponse.ok) {
@@ -127,7 +127,7 @@ export default function RegistrationPage({
 
               try {
                 const photoResponse = await fetch(
-                  `https://student-info.tyronscott.me/api/getStudentPhoto?id=${apiData.partner_id}`
+                  `https://dlsl-student-api.onrender.com/api/getStudentPhoto?id=${apiData.partner_id}`
                 );
                 if (photoResponse.ok) {
                   studentPhotoUrl = await photoResponse.text()
@@ -481,7 +481,7 @@ export default function RegistrationPage({
                 />{" "}
                 by{" "}
                 <a
-                  href="https://tyronscott.me/"
+                  href="https://instagram.com/tyronscott_"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="underline hover:text-green-700 transition-colors font-medium"

@@ -127,7 +127,7 @@ export default function RegistrationPage({
 
               try {
                 const photoResponse = await fetch(
-                  `https://dlsl-student-api.onrender.com/api/getStudentPhoto?id=${apiData.partner_id}`
+                  `https://dlsl-student-api-2hgc.onrender.com/api/getStudentPhoto?id=${apiData.partner_id}`
                 );
                 if (photoResponse.ok) {
                   studentPhotoUrl = await photoResponse.text()

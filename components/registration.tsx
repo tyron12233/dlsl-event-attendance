@@ -92,7 +92,7 @@ export default function RegistrationPage({
           }
         } else {
           const studentInfoResponse = await fetch(
-            `https://dlsl-student-api.onrender.com/api/student?id=${idToProcess}`
+            `https://dlsl-student-api-2hgc.onrender.com/api/student?id=${idToProcess}`
           );
 
           if (!studentInfoResponse.ok) {
